@@ -1,46 +1,124 @@
-# RAG Micro (FastAPI + Qdrant + Postgres + Vite/React/Tailwind)
+# rag-micro
 
-A minimal, dockerized RAG scaffold designed for a **2‑hour micro‑sprint**:
-- **Backend:** FastAPI, PDF ingestion, chunking, sentence-transformer embeddings, Qdrant vector store, Postgres metadata.
-- **Frontend:** Vite + React + Tailwind for PDF upload and simple question UI.
-- **Infra:** Docker Compose with `postgres`, `qdrant`, `api`, and `web` services.
+**rag-micro** is a lightweight microservice implementation of a Retrieval-Augmented Generation (RAG) system.  
+It combines semantic vector search with keyword search, deduplication, and optional reranking, then streams answers back from a local LLM (via Ollama).  
 
-## Quick Start
-
-```bash
-cp .env.example .env
-docker compose up --build
-```
-
-- API: http://localhost:8000 (health: `/health`)
-- Web: http://localhost:5173
-
-## Flow
-
-1. Upload up to 5 PDFs via the web UI (or `POST /ingest/upload`).
-2. The API extracts text per page (pdfplumber → PyMuPDF fallback), chunks text, embeds with `all-MiniLM-L6-v2`, and upserts to Qdrant.
-3. Ask a question via the web UI (or `POST /query`). You’ll get top hits and a context-only draft (no LLM yet).
-
-## Notable Files
-
-- `services/api/app/routes/ingest.py` — file upload + ingest → Qdrant.
-- `services/api/app/routes/query.py` — semantic search over Qdrant.
-- `services/api/app/utils/embed.py` — embedding + Qdrant helpers.
-- `services/api/app/utils/pdf.py` — page-level text extraction (basic OCR fallback uses PyMuPDF text only; add OCR later).
-- `services/api/app/utils/chunk.py` — adjustable chunking env vars.
-
-## Next Steps (suggested, ~1–2 sprints)
-
-- Add **LLM answer synthesis** (NVIDIA NeMo, OpenAI/Groq, or local models).
-- Add **source-citation formatting** (filename, page, score).
-- Implement **auth** and **rate limiting** for the API.
-- Add **alembic** migrations; expand metadata (doc hashes, MIME types).
-- Add **OCR** (PaddleOCR or Tesseract) for scanned PDFs.
-- Implement **batch status** & job queue (RQ/Celery) for large uploads.
-- Replace sentence-transformers with your **NeMo embedding head** when ready.
-- Frontend: show hits with document/page chips and copy-to-clipboard.
-- Observability: Prometheus/Grafana or OpenTelemetry.
+This project is designed to be **fast, modular, and easy to run locally** while remaining extensible for production use.
 
 ---
 
-*Scaffold generated on 2025-09-20T14:58:20.546532Z.*
+## Features
+
+- 🔎 **Hybrid Retrieval**: Combines vector embeddings + full-text search (BM25 style).  
+- 🧹 **Deduplication**: Removes near-identical chunks from results.  
+- 🔄 **Optional Reranker**: Cross-encoder reranker support for improved result ordering.  
+- 📑 **Citation Persistence**: Each streamed answer includes consistent document/page citations.  
+- 📤 **Streaming Answers**: Uses Server-Sent Events (SSE) for real-time model responses.  
+- 📂 **File Upload**: Upload and index PDF/Markdown/TXT documents via API or frontend.  
+- 🧩 **Microservice Ready**: Clean separation of retrieval, embedding, and answer generation.  
+
+---
+
+## Architecture
+
+```
+rag-micro/
+├── services/
+│   ├── api/              # FastAPI backend
+│   │   ├── routes/       # Query + ingest endpoints
+│   │   ├── db.py         # Database/Index connections
+│   │   ├── utils/        # Embedding + helper logic
+│   │   └── ...
+│   ├── worker/           # Async ingestion / indexing jobs (optional)
+│   └── ...
+├── cache/                # Preview files
+├── docker-compose.yml    # Local dev stack
+└── README.md
+```
+
+- **Database**: Postgres (metadata), Qdrant (vector store).  
+- **Embeddings**: Ollama, or external APIs.  
+- **LLM**: Ollama local models (e.g., `llama3`), streamed to client.  
+
+---
+
+## Quickstart
+
+### Prerequisites
+- Docker & Docker Compose  
+- Ollama installed locally (with at least one model pulled, e.g. `llama3`)  
+
+### Run Locally
+```bash
+git clone https://github.com/genioCE/rag-micro.git
+cd rag-micro
+docker compose up --build
+```
+
+The API will be available at [http://localhost:8000](http://localhost:8000).
+
+---
+
+## API Endpoints
+
+### Health Check
+```bash
+GET /health
+```
+
+### Upload Documents
+```bash
+POST /ingest/upload
+```
+Form-data:  
+- `files=@/path/to/document.pdf`
+
+### Query
+```bash
+POST /query/
+```
+JSON body:
+```json
+{
+  "q": "<choose a word>",
+  "top_k": 5,
+  "alpha": 0.6,
+  "use_reranker": true
+}
+```
+
+Returns:
+- Retrieved chunks (doc/page/chunk info)  
+- Streamed LLM answer with citations  
+
+---
+
+## Example Query (curl)
+```bash
+curl -s -X POST "http://localhost:8000/query/" \
+  -H "Content-Type: application/json" \
+  -d '{"q":"<use word chosen above>","top_k":3,"alpha":0.6}' | jq
+```
+
+---
+
+## Development
+
+- Python 3.11+  
+- FastAPI, SQLAlchemy, Qdrant, Ollama  
+- For local dev: use `uvicorn` to run API service  
+
+---
+
+## Roadmap
+
+- [ ] Improve reranker integration (bge-reranker)  
+- [ ] Frontend preview + conversation interface  
+- [ ] Multi-user doc collections  
+- [ ] Production deployment (Kubernetes, GPU-enabled)  
+
+---
+
+## License
+
+MIT License. See [LICENSE](./LICENSE) for details.  
